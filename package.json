@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "ollama": "^0.6.3",
+    "qrcode": "^1.5.4",
+    "stripe": "^19.3.0"
+  }
+}
