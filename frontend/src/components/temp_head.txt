@@ -1,0 +1,200 @@
+import React, { useState, useEffect, useMemo } from "react";
+import api from "../lib/axios";
+import { toast } from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
+
+export default function VendorBoothApplications() {
+  const { user } = useAuth();
+  const vendorId = user?._id || user?.id;
+
+  // original booths state
+  const [bookings, setBookings] = useState([]);
+  const [loadingBooths, setLoadingBooths] = useState(true);
+
+  // NEW: bazaars state (accepted + pending/rejected for vendor)
+  const [bazaarsAccepted, setBazaarsAccepted] = useState([]);
+  const [bazaarsPendingRejected, setBazaarsPendingRejected] = useState([]);
+  const [loadingBazaars, setLoadingBazaars] = useState(true);
+
+  const [selectedTab, setSelectedTab] = useState("all"); // "all", "approved", "pending", "awaiting", "rejected"
+  const [payingRowId, setPayingRowId] = useState(null);
+  const [cancellingRowId, setCancellingRowId] = useState(null);
+  const [confirmingStripeSession, setConfirmingStripeSession] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [expandedRowId, setExpandedRowId] = useState(null);
+  const [removingRowId, setRemovingRowId] = useState(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch vendor booth bookings (unchanged endpoint)
+  const fetchBookings = async () => {
+    if (!vendorId) return;
+    try {
+      setLoadingBooths(true);
+      const response = await api.get(
+        `/events/booth-bookings/vendor/${vendorId}`
+      );
+      const list = Array.isArray(response.data.bookings)
+        ? response.data.bookings
+        : Array.isArray(response.data)
+        ? response.data
+        : response.data || [];
+      setBookings(list);
+    } catch (error) {
+      console.error("Error fetching booth bookings:", error);
+      toast.error("Failed to load booth applications");
+      setBookings([]);
+    } finally {
+      setLoadingBooths(false);
+    }
+  };
+
+  // Fetch accepted bazaars and pending/rejected bazaars for vendor
+  const fetchBazaars = async () => {
+    if (!vendorId) return;
+    try {
+      setLoadingBazaars(true);
+
+      const acceptedReq = api
+        .get(`/bazaars/vendor/${vendorId}/accepted`)
+        .catch((e) => {
+          console.warn("accepted bazaars fetch failed", e);
+          return { data: [] };
+        });
+      const pendingRejectedReq = api
+        .get(`/bazaars/vendor/${vendorId}/pending-rejected`)
+        .catch((e) => {
+          console.warn("pending/rejected bazaars fetch failed", e);
+          return { data: [] };
+        });
+
+      const [accRes, prRes] = await Promise.all([
+        acceptedReq,
+        pendingRejectedReq,
+      ]);
+
+      // Ensure we always normalize into vendor-application entries:
+      // { bazaar: <bazaarDoc>, attendees: [], status: 'pending'|'accepted'|'rejected', createdAt, boothName, fullData? }
+      const normalizeRespArray = (arr) => {
+        const list = Array.isArray(arr) ? arr : Array.isArray(arr?.bazaars) ? arr.bazaars : [];
+        return list.map((item) => {
+          // If the API already returned a wrapper { bazaar, attendees, status, ... } keep it
+          if (item && item.bazaar) {
+            return item;
+          }
+
+          const baz = item || {};
+          // find vendor-specific request inside bazaar.vendorRequests (if present)
+          const vendorReq =
+            Array.isArray(baz.vendorRequests) &&
+            baz.vendorRequests.find((r) => String(r.vendor) === String(vendorId));
+
+          if (vendorReq) {
+            return {
+              bazaar: baz,
+              attendees: vendorReq.attendees || [],
+              status: vendorReq.status || "pending",
+              createdAt: vendorReq.appliedAt || vendorReq.createdAt || baz.createdAt,
+              boothName: vendorReq.boothName || vendorReq.boothName || "",
+              fullData: vendorReq,
+            };
+          }
+
+          // fallback: maybe the API returned an application-like item directly
+          const attendeesFallback = baz.attendees || baz.registrants || [];
+          return {
+            bazaar: baz,
+            attendees: attendeesFallback,
+            status: baz.status || "pending",
+            createdAt: baz.createdAt,
+            boothName: baz.boothName || "",
+            fullData: baz,
+          };
+        });
+      };
+
+      const accList = normalizeRespArray(accRes.data);
+      const prList = normalizeRespArray(prRes.data);
+      const accList = Array.isArray(accRes.data)
+        ? accRes.data
+        : accRes.data.bazaars || accRes.data || [];
+      const prList = Array.isArray(prRes.data)
+        ? prRes.data
+        : prRes.data.bazaars || prRes.data || [];
+
+      setBazaarsAccepted(accList);
+      setBazaarsPendingRejected(prList);
+    } catch (err) {
+      console.error("Failed to fetch bazaars", err);
+      toast.error("Failed to load bazaar applications");
+      setBazaarsAccepted([]);
+      setBazaarsPendingRejected([]);
+    } finally {
+      setLoadingBazaars(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookings();
+    fetchBazaars();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vendorPayment = params.get("vendorPayment");
+    const sessionIdFromQuery = params.get("session_id");
+
+    const cleanupParams = () => {
+      params.delete("vendorPayment");
+      params.delete("session_id");
+      const nextQuery = params.toString();
+      const newUrl = `${window.location.pathname}${
+        nextQuery ? `?${nextQuery}` : ""
+      }`;
+      window.history.replaceState({}, "", newUrl);
+    };
+
+    const confirmSession = (sessionId, cleanup) => {
+      if (!sessionId) return;
+      setConfirmingStripeSession(true);
+      api
+        .post("/payments/vendor-bazaar/confirm", { sessionId })
+        .then(() => {
+          toast.success("Payment confirmed. Your status will update shortly.");
+          fetchBazaars();
+          fetchBookings();
+        })
+        .catch((error) => {
+          const message =
+            error?.response?.data?.message ||
+            "Failed to confirm Stripe payment. Please contact support.";
+          toast.error(message);
+        })
+        .finally(() => {
+          setConfirmingStripeSession(false);
+          cleanup?.();
+          if (
+            localStorage.getItem("vendorPayment:pendingSession") === sessionId
+          ) {
+            localStorage.removeItem("vendorPayment:pendingSession");
+          }
+        });
+    };
+
+    if (vendorPayment === "cancelled") {
+      toast.error("Stripe payment cancelled.");
+      cleanupParams();
+      localStorage.removeItem("vendorPayment:pendingSession");
+      return;
+    }
+
+    if (vendorPayment && sessionIdFromQuery) {
+      confirmSession(sessionIdFromQuery, cleanupParams);
+      return;
+    }
+
+    const pendingSession = localStorage.getItem("vendorPayment:pendingSession");
