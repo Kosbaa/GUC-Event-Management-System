@@ -1,0 +1,27 @@
+[
+  {
+    "question": "How do I book a court?",
+    "answer": "Open Courts in the app, pick a date/time, and tap Reserve. If the Event Office has booked the full day, choose another date.",
+    "keywords": ["court", "book", "reserve", "tennis", "football"]
+  },
+  {
+    "question": "How do I see my registrations?",
+    "answer": "Go to Dashboard > Event Registrations to view or cancel your event bookings. Workshops and trips show with their current status.",
+    "keywords": ["registration", "registered", "my events", "cancel"]
+  },
+  {
+    "question": "Payment issues or refunds",
+    "answer": "If a payment fails, check your card details then retry. For refunds, provide the event/booth name and payment reference; refunds follow university policy timelines.",
+    "keywords": ["payment", "refund", "stripe", "wallet"]
+  },
+  {
+    "question": "Vendor or booth applications",
+    "answer": "Vendors can apply from the Vendor portal. Submit required documents and wait for review. Booth assignments depend on availability and payment completion.",
+    "keywords": ["vendor", "booth", "bazaar", "application"]
+  },
+  {
+    "question": "Loyalty program details",
+    "answer": "Check the Loyalty section to submit or track applications. Streaks and perks unlock when you attend different event types each term.",
+    "keywords": ["loyalty", "perks", "streak", "rewards"]
+  }
+]
